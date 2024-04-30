@@ -173,6 +173,8 @@ semgrep scan --config docs/semgrep.yml
    def sink = cpg.call.name("eval").argument
    ```
 
+  указываем, что нас интересуют параметры метода `lookup`, которые могут в том или ином виде появиться в качества аргументов вызова `eval`.
+
 3. Используем `reachableByFlows`
 
    ```scala
@@ -200,5 +202,5 @@ joern выдает несколько эквивалентных результ�
 │Identifier       │scriptEngine != null                              │83  │lookup│/tmp/jimple2cpg-2989635559924373113/org/apache/commons/text/lookup/ScriptStringLookup.class│
 │Identifier       │scriptEngine.eval(script)                         │86  │lookup│/tmp/jimple2cpg-2989635559924373113/org/apache/commons/text/lookup/ScriptStringLookup.class│
 ```
-в целом это ожидаемо, т.к. внутри `lookup` действительно есть несколько путей до `eval`.
+в целом это ожидаемо, т.к. внутри `lookup` действительно есть несколько путей до `eval`. Об этом же пишется и в https://jaiverma.github.io/blog/joern-intro
 
