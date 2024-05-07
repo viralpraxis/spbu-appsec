@@ -2,8 +2,8 @@
 
 В Ruby можно вызвать шелл двумя способами:
 
-1. Kernel.system("echo", "1") / system("echo", "1")
-2. `echo 1` || Kernel.`("echo 1")
+1. `Kernel.system("echo", "1")` / `system("echo", "1")`
+2. ``echo 1`` || Kernel.`("echo 1")
 
 Фреймворки если и используют эти методы, то как правило только для генерации темпейтов, вызова рейк-таксок и подобного
 
@@ -69,3 +69,5 @@ gnome-calculator
 ![demo](./assets/extra/1.png)
 
 Проблема исправлена в этом PR: https://github.com/rails/rails/pull/51739
+
+В followup PR один из мейнетернов пишет, что такого рода проблема потенциально могут приводить к уязвимостям: https://github.com/rails/rails/pull/51741
